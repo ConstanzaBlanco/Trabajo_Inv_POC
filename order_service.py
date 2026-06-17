@@ -3,9 +3,6 @@ import pika
 import json
 import sys
 
-ORDER_ID = 1
-PRODUCT = "Laptop"
-
 
 def get_channel():
     # Conecta Python con RabbitMQ
@@ -15,7 +12,7 @@ def get_channel():
 
 
 def publish_event(event_name, data):
-    # Publica un evento en RabbitMQ
+    # Publica una cola en RabbitMQ que representa un evento
     connection, channel = get_channel()
 
     channel.queue_declare(queue=event_name, durable=True)
@@ -30,13 +27,13 @@ def publish_event(event_name, data):
     connection.close()
 
 
-def create_order():
+def create_order(order_id, producto, payment_success):
     # Guarda el pedido en la base local del servicio Order
     conn = sqlite3.connect("orders.db")
 
     conn.execute(
         "INSERT OR REPLACE INTO orders(id, product, status) VALUES (?, ?, ?)",
-        (ORDER_ID, PRODUCT, "PENDING")
+        (order_id, producto, "PENDING")
     )
 
     conn.commit()
@@ -46,8 +43,9 @@ def create_order():
 
     # Publica evento para que Inventory Service lo procese
     publish_event("order_created", {
-        "order_id": ORDER_ID,
-        "product": PRODUCT
+        "order_id": order_id,
+        "product": producto,
+        "payment_success": payment_success
     })
 
     print("[ORDER] Evento enviado: order_created")
@@ -59,6 +57,7 @@ def listen_payment_events():
 
     channel.queue_declare(queue="payment_approved", durable=True)
     channel.queue_declare(queue="payment_failed", durable=True)
+    channel.queue_declare(queue="stock_failed", durable=True)
 
     def payment_approved_callback(ch, method, properties, body):
         data = json.loads(body)
@@ -94,6 +93,19 @@ def listen_payment_events():
 
         print("[ORDER] Evento enviado: order_cancelled")
 
+    def stock_failed_callback(ch, method, properties, body):
+        data = json.loads(body)
+
+        conn = sqlite3.connect("orders.db")
+        conn.execute(
+            "UPDATE orders SET status = ? WHERE id = ?",
+            ("CANCELLED", data["order_id"])
+        )
+        conn.commit()
+        conn.close()
+
+        print("[ORDER] Stock no disponible. Pedido CANCELLED")
+
     channel.basic_consume(
         queue="payment_approved",
         on_message_callback=payment_approved_callback,
@@ -106,12 +118,15 @@ def listen_payment_events():
         auto_ack=True
     )
 
+    channel.basic_consume(
+        queue="stock_failed",
+        on_message_callback=stock_failed_callback,
+        auto_ack=True
+    )
+
     print("[ORDER] Esperando eventos de pago...")
     channel.start_consuming()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "create":
-        create_order()
-    else:
-        listen_payment_events()
+    listen_payment_events()

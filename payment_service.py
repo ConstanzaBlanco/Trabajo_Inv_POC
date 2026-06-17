@@ -2,11 +2,6 @@ import sqlite3
 import pika
 import json
 
-# Cambiar esto:
-# True  = fuerza fallo de pago
-# False = pago aprobado
-FAIL_PAYMENT = True
-
 
 def get_channel():
     connection = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
@@ -29,17 +24,17 @@ def publish_event(event_name, data):
     connection.close()
 
 
-def process_payment(order_id, product):
+def process_payment(order_id, product, payment_success):
     conn = sqlite3.connect("payments.db")
 
-    if FAIL_PAYMENT:
-        status = "FAILED"
-        event = "payment_failed"
-        print("[PAYMENT] Pago fallido intencionalmente")
-    else:
+    if payment_success:
         status = "APPROVED"
         event = "payment_approved"
         print("[PAYMENT] Pago aprobado")
+    else:
+        status = "FAILED"
+        event = "payment_failed"
+        print("[PAYMENT] Pago fallido intencionalmente")
 
     conn.execute(
         "INSERT OR REPLACE INTO payments(id, order_id, status) VALUES (?, ?, ?)",
@@ -51,7 +46,8 @@ def process_payment(order_id, product):
 
     publish_event(event, {
         "order_id": order_id,
-        "product": product
+        "product": product,
+        "payment_success": payment_success,
     })
 
     print(f"[PAYMENT] Evento enviado: {event}")
@@ -65,7 +61,7 @@ def listen_stock_reserved():
     def stock_reserved_callback(ch, method, properties, body):
         data = json.loads(body)
         print("[PAYMENT] Evento recibido: stock_reserved")
-        process_payment(data["order_id"], data["product"])
+        process_payment(data["order_id"], data["product"], data["payment_success"])
 
     channel.basic_consume(
         queue="stock_reserved",

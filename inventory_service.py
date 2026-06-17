@@ -24,7 +24,7 @@ def publish_event(event_name, data):
     connection.close()
 
 
-def reserve_stock(order_id, product):
+def reserve_stock(order_id, product,payment_success):
     conn = sqlite3.connect("inventory.db")
     cursor = conn.cursor()
 
@@ -37,8 +37,11 @@ def reserve_stock(order_id, product):
 
         publish_event("stock_failed", {
             "order_id": order_id,
-            "product": product
+            "product": product,
+            "payment_success": payment_success
         })
+
+        print("[INVENTORY] Evento enviado: stock_failed")
         return
 
     new_quantity = row[0] - 1
@@ -55,7 +58,8 @@ def reserve_stock(order_id, product):
 
     publish_event("stock_reserved", {
         "order_id": order_id,
-        "product": product
+        "product": product,
+        "payment_success": payment_success
     })
 
     print("[INVENTORY] Evento enviado: stock_reserved")
@@ -89,7 +93,7 @@ def listen_events():
     def order_created_callback(ch, method, properties, body):
         data = json.loads(body)
         print("[INVENTORY] Evento recibido: order_created")
-        reserve_stock(data["order_id"], data["product"])
+        reserve_stock(data["order_id"], data["product"], data["payment_success"])
 
     def order_cancelled_callback(ch, method, properties, body):
         data = json.loads(body)

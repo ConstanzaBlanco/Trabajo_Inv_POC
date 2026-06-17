@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS inventory (
 # Insertamos stock inicial
 conn.execute("""
 INSERT OR REPLACE INTO inventory(product, quantity)
-VALUES ('Laptop', 10)
+VALUES ('Laptop', 2)
 """)
 
 conn.commit()
